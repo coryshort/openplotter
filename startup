@@ -19,7 +19,6 @@ import wx, subprocess, time, os, threading, sys, platform, requests, ConfigParse
 from shutil import copyfile
 from classes.conf import Conf
 from classes.language import Language
-from classes.check_vessel_self import checkVesselSelf
 
 class MyFrame(wx.Frame):
 		
@@ -52,9 +51,6 @@ class MyFrame(wx.Frame):
 				self.conf.set('GENERAL', 'op_folder', op_folder)
 			self.currentpath = self.home+op_folder+'/openplotter'
 
-		sk_file_path = self.home+'/.openplotter/openplotter-settings.json'
-		if not os.path.isfile(sk_file_path):
-			copyfile(self.currentpath+'/OP-signalk/openplotter-settings.json', sk_file_path)
 		private_unit_file_path = self.home+'/.openplotter/private_unit.json'
 		if not os.path.isfile(private_unit_file_path):
 			copyfile(self.currentpath+'/classes/private_unit.json', private_unit_file_path)
@@ -157,28 +153,8 @@ class MyFrame(wx.Frame):
 		self.warnings_data=msg
 		
 	def starting(self):
-		pids = [pid for pid in os.listdir('/proc') if pid.isdigit()]
-		exist=False
-
-		device = ''
-		ssid = ''
-		passw = ''
-		hw_mode = ''
-		channel = ''
-		wpa = ''
-		boot_ap = 0
-		bridge = ''
-		ip = ''
-		share = ''
-
-		for pid in pids:
-			try:
-				if 'signalk-server-node' in open(os.path.join('/proc', pid, 'cmdline'), 'rb').read():
-					exist=True
-			except IOError: # proc has already terminated
-				continue
-
-		if not exist:
+		#comprobar signal k settings y modificar si es necesario
+		if util_process_exist('signalk-server'):
 
 			wifi_server=self.conf.get('WIFI', 'enable')
 			wifi_server_pass=self.conf.get('WIFI', 'password')
@@ -285,10 +261,6 @@ class MyFrame(wx.Frame):
 
 			subprocess.call(['pkill', '-f', '1w_d.py'])
 			subprocess.Popen(['python', self.currentpath+'/1w_d.py'])
-
-			subprocess.call(["pkill", '-f', "signalk-server"])
-			self.add_logger_data(_('\nStarting SignalK Server...'))
-			vessel_self=checkVesselSelf(self.conf)
 
 			subprocess.call(['pkill', '-f', 'diagnostic-N2K-output.py'])
 			subprocess.call(['pkill', '-f', 'N2K-server_d.py'])
@@ -413,6 +385,7 @@ class MyFrame(wx.Frame):
 				if sound:
 					try: subprocess.Popen(['mpg123', '-q', sound])
 					except: pass
+		else: self.add_warnings_data(_('\n\nFatal error: Signal K server is not running.').decode('utf8'))
 
 	def OnClose(self, event):
 		pass
@@ -441,12 +414,22 @@ def util_process_exist(process_name):
 		except IOError:  # proc has already terminated
 			continue
 	return exist	
-						
+
+def print_help():
+	print('This is a part of OpenPlotter software')
+	print('It starts all needed server/services/background processes')
+	print('Options are:')
+	print('startup            (does only run on X display desktop)')
+	print('startup restart    (does only run on X display desktop)')
+	print('startup stop')
+	print('this: startup -h')
+
 if len(sys.argv)>1:
 	if sys.argv[1]=='stop':
+		subprocess.call(['sudo', 'systemctl', 'stop', 'signalk.socket'])
+		subprocess.call(['sudo', 'systemctl', 'stop', 'signalk.service'])
 		subprocess.call(['pkill', '-9', 'opencpn'])
 		subprocess.call(['pkill', '-9', 'kplex'])
-		subprocess.call(['pkill', '-f', 'signalk-server'])
 		if util_process_exist('node-red'):
 			subprocess.call('node-red-stop')
 		subprocess.call(['pkill', '-9', 'aisdecoder'])
@@ -457,25 +440,17 @@ if len(sys.argv)>1:
 		subprocess.call(['pkill', '-f', 'SK-base_d.py'])
 		subprocess.call(['pkill', '-f', 'N2K-server_d.py'])
 		subprocess.call(['pkill', '-f', '/openplotter/openplotter'])
-		subprocess.call(['killall', 'diagnostic-'])
-		
+		subprocess.call(['killall', 'diagnostic-'])		
 	elif sys.argv[1]=='restart':
-		subprocess.call(['pkill', '-f', 'signalk-server'])
+		subprocess.call(['sudo', 'systemctl', 'restart', 'signalk.service'])
+		subprocess.call(['sudo', 'systemctl', 'restart', 'signalk.socket'])
 		app = wx.App()
 		MyFrame().Show()
 		app.MainLoop()
-	elif sys.argv[1]=='-h':
-		print('This is a part of OpenPlotter software')
-		print('It starts all needed server/services/background processes')
-		print('Options are:')
-		print('startup            (does only run on X display desktop)')
-		print('startup restart    (does only run on X display desktop)')
-		print('startup stop')
-		print('this: startup -h')
-
-else:
-	if not util_process_exist('signalk-server'):
+	elif sys.argv[1]=='start':
 		app = wx.App()
 		MyFrame().Show()
 		app.MainLoop()
+	elif sys.argv[1]=='-h': print_help()
+else: print_help()
 	
